@@ -18,6 +18,50 @@ app.post('/signup', async(req,res)=>{
     }
     
 })
+app.get('/user',async (req,res)=>{
+    try{
+        const user = await User.find(req.body);
+        if(!user){
+            res.status(404).send("User not found");
+        }
+        else{
+            res.send(user);
+        }
+    }catch(err){
+        res.status(400).send("Something went wrong");
+    }
+});
+
+app.get('/feed',async (req,res)=>{
+    try{
+        const users = await User.find({});
+        if(!users){
+            res.status(404).send("User not found");
+        }
+        else{
+            res.send(users);
+        }
+    }catch(err){
+        res.status(400).send("Something went wrong");
+    }
+});
+app.delete('/user', async (req,res)=>{
+    try{
+        await User.findByIdAndDelete(req.body.userId);
+        res.send("user deleted sucessfully")
+    }catch(err){
+        res.status(400).send("Something went Wrong!")
+    }
+});
+
+app.patch('/user', async(req,res)=>{
+    try{
+        await User.findByIdAndUpdate(req.body.userId, req.body);
+        res.send("User Updated  Sucessfully")
+    }catch(err){
+        res.status(400).send("Something went Wrong!")
+    }
+})
 
 connectDB()
     .then(()=>{
