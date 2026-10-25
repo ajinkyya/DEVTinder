@@ -56,10 +56,13 @@ app.delete('/user', async (req,res)=>{
 
 app.patch('/user', async(req,res)=>{
     try{
-        await User.findByIdAndUpdate(req.body.userId, req.body);
+        await User.findByIdAndUpdate(req.body.userId, req.body,{
+            returnDocument:"after",
+            runValidators:true
+        });
         res.send("User Updated  Sucessfully")
     }catch(err){
-        res.status(400).send("Something went Wrong!")
+        res.status(400).send("Update Failed : " + err.message)
     }
 })
 
