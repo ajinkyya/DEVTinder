@@ -1,98 +1,92 @@
-const mongoose = require("mongoose");
-const validator = require("validator");
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcrypt");
+const express = require("express");
+const userRouter = express.Router();
 
-const userSchema = new mongoose.Schema(
-  {
-    firstName: {
-      type: String,
-      required: true,
-      minLength: 4,
-      maxLength: 50,
-    },
-    lastName: {
-      type: String,
-    },
-    emailId: {
-      type: String,
-      lowercase: true,
-      required: true,
-      unique: true,
-      trim: true,
-      validate(value) {
-        if (!validator.isEmail(value)) {
-          throw new Error("Invalid email address: " + value);
-        }
-      },
-    },
-    password: {
-      type: String,
-      required: true,
-      validate(value) {
-        if (!validator.isStrongPassword(value)) {
-          throw new Error("Enter a Strong Password: " + value);
-        }
-      },
-    },
-    age: {
-      type: Number,
-      min: 18,
-    },
-    gender: {
-      type: String,
-      enum: {
-        values: ["male", "female", "other"],
-        message: `{VALUE} is not a valid gender type`,
-      },
-      // validate(value) {
-      //   if (!["male", "female", "others"].includes(value)) {
-      //     throw new Error("Gender data is not valid");
-      //   }
-      // },
-    },
-    photoUrl: {
-      type: String,
-      default: "https://geographyandyou.com/images/user-profile.png",
-      validate(value) {
-        if (!validator.isURL(value)) {
-          throw new Error("Invalid Photo URL: " + value);
-        }
-      },
-    },
-    about: {
-      type: String,
-      default: "This is a default about of the user!",
-    },
-    skills: {
-      type: [String],
-    },
-  },
-  {
-    timestamps: true,
+const { userAuth } = require("../middlewares/auth");
+const ConnectionRequest = require("../models/connectionRequest");
+const User = require("../models/user");
+
+const USER_SAFE_DATA = "firstName lastName photoUrl age gender about skills";
+
+// Get all the pending connection request for the loggedIn user
+userRouter.get("/user/requests/received", userAuth, async (req, res) => {
+  try {
+    const loggedInUser = req.user;
+
+    const connectionRequests = await ConnectionRequest.find({
+      toUserId: loggedInUser._id,
+      status: "interested",
+    }).populate("fromUserId", USER_SAFE_DATA);
+    // }).populate("fromUserId", ["firstName", "lastName"]);
+
+    res.json({
+      message: "Data fetched successfully",
+      data: connectionRequests,
+    });
+  } catch (err) {
+    req.statusCode(400).send("ERROR: " + err.message);
   }
-);
+});
 
-userSchema.methods.getJWT = async function () {
-  const user = this;
+userRouter.get("/user/connections", userAuth, async (req, res) => {
+  try {
+    const loggedInUser = req.user;
 
-  const token = await jwt.sign({ _id: user._id }, "DEV@Tinder$790", {
-    expiresIn: "7d",
-  });
+    const connectionRequests = await ConnectionRequest.find({
+      $or: [
+        { toUserId: loggedInUser._id, status: "accepted" },
+        { fromUserId: loggedInUser._id, status: "accepted" },
+      ],
+    })
+      .populate("fromUserId", USER_SAFE_DATA)
+      .populate("toUserId", USER_SAFE_DATA);
 
-  return token;
-};
+    console.log(connectionRequests);
 
-userSchema.methods.validatePassword = async function (passwordInputByUser) {
-  const user = this;
-  const passwordHash = user.password;
+    const data = connectionRequests.map((row) => {
+      if (row.fromUserId._id.toString() === loggedInUser._id.toString()) {
+        return row.toUserId;
+      }
+      return row.fromUserId;
+    });
 
-  const isPasswordValid = await bcrypt.compare(
-    passwordInputByUser,
-    passwordHash
-  );
+    res.json({ data });
+  } catch (err) {
+    res.status(400).send({ message: err.message });
+  }
+});
 
-  return isPasswordValid;
-};
+userRouter.get("/feed", userAuth, async (req, res) => {
+  try {
+    const loggedInUser = req.user;
 
-module.exports = mongoose.model("User", userSchema);
+    const page = parseInt(req.query.page) || 1;
+    let limit = parseInt(req.query.limit) || 10;
+    limit = limit > 50 ? 50 : limit;
+    const skip = (page - 1) * limit;
+
+    const connectionRequests = await ConnectionRequest.find({
+      $or: [{ fromUserId: loggedInUser._id }, { toUserId: loggedInUser._id }],
+    }).select("fromUserId  toUserId");
+
+    const hideUsersFromFeed = new Set();
+    connectionRequests.forEach((req) => {
+      hideUsersFromFeed.add(req.fromUserId.toString());
+      hideUsersFromFeed.add(req.toUserId.toString());
+    });
+
+    const users = await User.find({
+      $and: [
+        { _id: { $nin: Array.from(hideUsersFromFeed) } },
+        { _id: { $ne: loggedInUser._id } },
+      ],
+    })
+      .select(USER_SAFE_DATA)
+      .skip(skip)
+      .limit(limit);
+
+    res.json({ data: users });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+module.exports = userRouter;
